@@ -1,0 +1,7 @@
+playwright
+google-generativeai
+supabase
+streamlit
+python-dotenv
+pandas
+requests
