@@ -203,7 +203,15 @@ def show_product_research():
 """
                     st.text_area("投稿文をコピー", post_text, height=200)
 
-                if st.button("除外する", key=f"discard_{item['id']}"):
+                # ボタン類
+                col_btn1, col_btn2 = st.columns(2)
+                if col_btn1.button("🔄 再分析", key=f"re_ai_{item['id']}"):
+                    db = DatabaseManager()
+                    db.supabase.table("products").update({"status": "new", "ai_analysis": None}).eq("id", item['id']).execute()
+                    st.toast("再分析待ちに設定しました。")
+                    st.rerun()
+
+                if col_btn2.button("🗑️ 除外", key=f"discard_{item['id']}"):
                     # ステータスを更新して非表示にする簡易実装
                     db = DatabaseManager()
                     db.supabase.table("products").update({"status": "discarded"}).eq("id", item['id']).execute()
@@ -288,6 +296,25 @@ def show_settings():
         )
     else:
         st.info("設定がありません。")
+
+    st.divider()
+    st.subheader("🧹 データメンテナンス")
+    col_m1, col_m2 = st.columns(2)
+    
+    if col_m1.button("🔄 全商品を最初から分析し直す"):
+        try:
+            db.supabase.table("products")\
+                .update({"status": "new", "ai_analysis": None})\
+                .neq("id", "00000000-0000-0000-0000-000000000000")\
+                .execute()
+            st.success("全商品を分析待ちにリセットしました。ボットが順次処理します。")
+        except Exception as e:
+            st.error(f"エラー: {e}")
+
+    if col_m2.button("🚫 全データを削除してリセット"):
+        # 誤操作防止のため確認なしで即削除はせず、あえてここではメッセージだけにするか、
+        # もしくは削除ロジックを実装
+        st.warning("この操作はターミナルから 'reset_data.py' を実行してください（安全のため）。")
 
 if __name__ == "__main__":
     main()
