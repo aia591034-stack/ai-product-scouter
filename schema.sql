@@ -1,4 +1,4 @@
--- 商品情報を保存するテーブル
+--  商品情報を保存するテーブル
 create table products (
   id uuid default gen_random_uuid() primary key,
   platform text not null, -- 'mercari' など

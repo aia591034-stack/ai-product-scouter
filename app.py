@@ -70,10 +70,11 @@ def stop_bot():
 def load_data():
     db = DatabaseManager()
     
-    # 有望な商品を取得（価格が0より大きいもの限定）
+    # 分析済みの商品をすべて取得（価格が0より大きいもの限定）
+    # status が profitable または analyzed のものを表示
     response = db.supabase.table("products")\
         .select("*")\
-        .eq("status", "profitable")\
+        .in_("status", ["profitable", "analyzed"])\
         .gt("price", 0)\
         .order("scraped_at", desc=True)\
         .execute()

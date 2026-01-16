@@ -78,10 +78,8 @@ def run_analysis_loop():
             
             # ステータスの決定
             inv_val = analysis.get('investment_value', 'C')
-            if inv_val in ['S', 'A']: # 投資価値が高いものだけ残す
-                new_status = 'profitable' # DBの互換性のためprofitableというステータス名は維持
-            elif inv_val == 'B':
-                new_status = 'analyzed'
+            if inv_val in ['S', 'A', 'B']: # Bランクも表示対象に含める
+                new_status = 'profitable' 
             else:
                 new_status = 'discarded'
             
