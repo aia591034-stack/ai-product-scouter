@@ -16,7 +16,7 @@ class Notifier:
         inv_val = analysis.get('investment_value', 'C')
         
         # SランクまたはAランクのみ通知
-        if inv_val not in ['S', 'A']:
+        # if inv_val not in ['S', 'A']:
             return
 
         rank_emoji = {"S": "💎", "A": "🔥", "B": "✅", "C": "👀"}
