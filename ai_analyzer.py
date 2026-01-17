@@ -63,8 +63,8 @@ def run_analysis_loop():
     
     print("AI分析プロセスを開始します...")
     
-    # 未分析の商品を取得
-    new_products = db.get_new_products(limit=5)
+    # 処理件数を5件から30件に増やして、バックログ（溜まり）を防ぐ
+    new_products = db.get_new_products(limit=30)
     
     if not new_products:
         print("分析待ちの商品はありません。")
