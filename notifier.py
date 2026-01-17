@@ -17,7 +17,7 @@ class Notifier:
         
         # SランクまたはAランクのみ通知
         # if inv_val not in ['S', 'A']:
-            return
+        return
 
         rank_emoji = {"S": "💎", "A": "🔥", "B": "✅", "C": "👀"}
         emoji = rank_emoji.get(inv_val, "✨")
