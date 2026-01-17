@@ -84,12 +84,9 @@ def load_data():
 def main():
     st.title("🤖 AI Product Scouter")
     
-    st.sidebar.header("メニュー")
-    
-    # クラウド環境(スマホ閲覧用)ではボット操作を隠す
+    # サイドバー：ボット制御
+    st.sidebar.header("🤖 システム制御")
     if not os.environ.get("IS_CLOUD"):
-        # ボット制御パネル
-        st.sidebar.subheader("🤖 自動監視ボット")
         running = is_bot_running()
         if running:
             st.sidebar.success("状態: 実行中 🟢")
@@ -100,122 +97,136 @@ def main():
             if st.sidebar.button("監視を開始"):
                 start_bot()
         
-        # ログファイルのリンク（簡易的）
-        with st.sidebar.expander("実行ログを見る", expanded=True):
-            if st.button("ログを更新"):
-                st.rerun()
-                
+        with st.sidebar.expander("実行ログ"):
             if os.path.exists("bot_log.txt"):
-                try:
-                    # ファイルを開き直して最新を読み込む
-                    with open("bot_log.txt", "r", encoding="utf-8") as f:
-                        # 最後の2000文字を取得
-                        f.seek(0, os.SEEK_END)
-                        size = f.tell()
-                        read_size = min(size, 2000)
-                        f.seek(size - read_size)
-                        log_content = f.read()
-                    st.code(log_content, language="text")
-                except Exception as e:
-                    st.error(f"ログ読み込みエラー: {e}")
-            else:
-                st.info("ログファイル(bot_log.txt)がまだありません。")
+                with open("bot_log.txt", "r", encoding="utf-8") as f:
+                    st.code(f.read()[-500:], language="text")
+    else:
+        st.sidebar.info("クラウド実行モードです。ボットは自動で動作します。")
 
-        st.sidebar.divider()
+    # メインタブ
+    tab1, tab2, tab3 = st.tabs(["📊 ダッシュボード", "🔍 商品リサーチ", "⚙️ 監視設定"])
     
-    menu = st.sidebar.radio("Go to", ["商品リサーチ", "監視設定"])
-    
-    if menu == "商品リサーチ":
+    with tab1:
+        show_dashboard()
+    with tab2:
         show_product_research()
-    elif menu == "監視設定":
+    with tab3:
         show_settings()
 
+def show_dashboard():
+    st.header("📈 システム統計")
+    db = DatabaseManager()
+    
+    # 統計データの取得
+    res = db.supabase.table("products").select("status, price, ai_analysis").execute()
+    df_all = pd.DataFrame(res.data)
+    
+    if df_all.empty:
+        st.info("データがまだありません。ボットを起動してスクレイピングを開始してください。")
+        return
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("分析済み総数", len(df_all))
+    col2.metric("利益商品(S/A/B)", len(df_all[df_all['status'] == 'profitable']))
+    
+    # ランクごとの内訳
+    ranks = df_all['ai_analysis'].apply(lambda x: x.get('investment_value') if x else None).value_counts()
+    col3.metric("最上位(Sランク)", ranks.get('S', 0))
+    
+    configs = db.get_active_search_configs()
+    col4.metric("監視キーワード数", len(configs))
+
+    # トレンドワードの可視化
+    st.subheader("現在の監視キーワード")
+    if configs:
+        k_df = pd.DataFrame(configs)
+        st.dataframe(k_df[['keyword', 'target_profit', 'created_at']], use_container_width=True)
+
 def show_product_research():
-    st.header("📈 AIトレンド速報")
+    st.header("🔎 AIトレンド分析結果")
     
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        sort_order = st.selectbox("並び替え", ["新着順", "投資価値が高い順"])
-    with col2:
-        if st.button("データ更新"):
-            st.rerun()
-        
     products = load_data()
-    
     if not products:
         st.info("現在、有望な商品はありません。")
         return
 
-    # Python側でソート（投資価値順 S->A->B）
+    # フィルタリング
+    with st.expander("🔍 フィルター設定", expanded=True):
+        c1, c2, c3 = st.columns(3)
+        rank_filter = c1.multiselect("投資価値ランク", ["S", "A", "B"], default=["S", "A", "B"])
+        min_price = c2.number_input("最低価格", value=0)
+        sort_order = c3.selectbox("並び替え", ["新着順", "投資価値が高い順"])
+
+    # フィルタリング適用
+    filtered_products = [
+        p for p in products 
+        if p.get('ai_analysis', {}).get('investment_value') in rank_filter
+        and p.get('price', 0) >= min_price
+    ]
+
+    # ソート
     if sort_order == "投資価値が高い順":
         rank_map = {'S': 3, 'A': 2, 'B': 1, 'C': 0}
-        products.sort(
+        filtered_products.sort(
             key=lambda x: rank_map.get(x.get('ai_analysis', {}).get('investment_value', 'C'), 0),
             reverse=True
         )
 
+    st.write(f"該当件数: {len(filtered_products)}件")
+
+    # CSVダウンロード機能
+    if filtered_products:
+        csv_data = []
+        for p in filtered_products:
+            ai = p.get('ai_analysis', {})
+            csv_data.append({
+                "タイトル": p['title'],
+                "価格": p['price'],
+                "ランク": ai.get('investment_value'),
+                "理由": ai.get('trend_reason'),
+                "URL": p['product_url']
+            })
+        csv_df = pd.DataFrame(csv_data)
+        st.download_button(
+            label="📥 検索結果をCSVでダウンロード",
+            data=csv_df.to_csv(index=False).encode('utf-8-sig'),
+            file_name='profitable_products.csv',
+            mime='text/csv',
+        )
+
     # グリッド表示
     cols = st.columns(3)
-    
-    for idx, item in enumerate(products):
+    for idx, item in enumerate(filtered_products):
         with cols[idx % 3]:
             with st.container(border=True):
-                # 画像
+                # ランクに応じたバッジ
+                ai_data = item.get('ai_analysis', {})
+                rank = ai_data.get('investment_value', 'C')
+                rank_colors = {"S": "🔴", "A": "🟠", "B": "🟢", "C": "⚪"}
+                
+                st.markdown(f"### {rank_colors.get(rank, '')} ランク {rank}")
+                
                 if item.get('image_url'):
                     st.image(item['image_url'], use_container_width=True)
                 
-                # タイトル
                 st.subheader(item['title'])
+                st.write(f"**価格: ¥{item['price']:,}**")
                 
-                ai_data = item.get('ai_analysis')
-                if ai_data:
-                    trend_reason = ai_data.get('trend_reason', '分析中...')
-                    heat = ai_data.get('heat_level', '-')
-                    future = ai_data.get('future_prediction', '')
-                    inv_val = ai_data.get('investment_value', '-')
-                    
-                    # トレンドスコア表示
-                    col_score1, col_score2 = st.columns(2)
-                    col_score1.metric("🔥 熱狂度", heat)
-                    col_score2.metric("💎 投資価値", inv_val)
-                    
-                    st.markdown(f"**📈 なぜ話題？**\n{trend_reason}")
-                    st.info(f"🔮 **未来予測:**\n{future}")
-                    
-                    st.caption(f"現在価格: ¥{item['price']:,}")
+                with st.expander("AI分析詳細"):
+                    st.markdown(f"**📈 なぜ話題？**\n{ai_data.get('trend_reason')}")
+                    st.info(f"🔮 **未来予測:**\n{ai_data.get('future_prediction')}")
                 
-                st.link_button("商品ページへ", item['product_url'])
+                st.link_button("メルカリで見る", item['product_url'])
                 
-                # X投稿作成機能
-                with st.expander("🐦 X(Twitter)投稿を作成"):
-                    post_text = f"""【AIトレンド予報】今、話題の「{item['title'][:10]}...」を分析しました🔍
-
-🔥 熱狂度: {ai_data.get('heat_level')}
-💎 投資ランク: {ai_data.get('investment_value')}
-
-📈 なぜ上がってる？
-「{ai_data.get('trend_reason')}」
-
-🔮 今後の予測
-{ai_data.get('future_prediction')}
-
-#AI #トレンド #メルカリ #{item['title'][:10]}
-"""
-                    st.text_area("投稿文をコピー", post_text, height=200)
-
-                # ボタン類
-                col_btn1, col_btn2 = st.columns(2)
-                if col_btn1.button("🔄 再分析", key=f"re_ai_{item['id']}"):
+                c_btn1, c_btn2 = st.columns(2)
+                if c_btn1.button("🔄 再分析", key=f"re_{item['id']}"):
                     db = DatabaseManager()
                     db.supabase.table("products").update({"status": "new", "ai_analysis": None}).eq("id", item['id']).execute()
-                    st.toast("再分析待ちに設定しました。")
                     st.rerun()
-
-                if col_btn2.button("🗑️ 除外", key=f"discard_{item['id']}"):
-                    # ステータスを更新して非表示にする簡易実装
+                if c_btn2.button("🗑️ 除外", key=f"del_{item['id']}"):
                     db = DatabaseManager()
                     db.supabase.table("products").update({"status": "discarded"}).eq("id", item['id']).execute()
-                    st.toast("除外しました")
                     st.rerun()
 
 def show_settings():

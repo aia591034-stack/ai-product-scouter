@@ -4,6 +4,7 @@ import time
 import google.generativeai as genai
 from dotenv import load_dotenv
 from database_manager import DatabaseManager
+from notifier import Notifier
 import sys
 import io
 
@@ -58,6 +59,7 @@ def analyze_product_with_ai(product):
 
 def run_analysis_loop():
     db = DatabaseManager()
+    notifier = Notifier()
     
     print("AI分析プロセスを開始します...")
     
@@ -85,6 +87,10 @@ def run_analysis_loop():
             
             # DB更新
             db.update_product_analysis(product['id'], analysis, new_status)
+            
+            # 通知（利益商品の場合）
+            if new_status == 'profitable':
+                notifier.send_profitable_item(product, analysis)
             
             # API制限考慮
             time.sleep(2)
