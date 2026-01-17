@@ -70,11 +70,10 @@ def stop_bot():
 def load_data():
     db = DatabaseManager()
     
-    # 全ての分析済み商品を取得（価格が0より大きいもの限定）
-    # status が profitable, analyzed, discarded のものをすべて表示
+    # status が 'profitable' のものだけを取得するように修正（これで除外ボタンが効くようになる）
     response = db.supabase.table("products")\
         .select("*")\
-        .neq("status", "new")\
+        .eq("status", "profitable")\
         .gt("price", 0)\
         .order("scraped_at", desc=True)\
         .execute()
@@ -84,49 +83,48 @@ def load_data():
 def main():
     st.title("🤖 AI Product Scouter")
     
-    # サイドバー：ボット制御
-    st.sidebar.header("🤖 システム制御")
-    if not os.environ.get("IS_CLOUD"):
-        running = is_bot_running()
-        if running:
-            st.sidebar.success("状態: 実行中 🟢")
-            if st.sidebar.button("監視を停止"):
-                stop_bot()
-        else:
-            st.sidebar.error("状態: 停止中 🔴")
-            if st.sidebar.button("監視を開始"):
-                start_bot()
-        
-        with st.sidebar.expander("実行ログ"):
-            if os.path.exists("bot_log.txt"):
-                with open("bot_log.txt", "r", encoding="utf-8") as f:
-                    st.code(f.read()[-500:], language="text")
-    else:
-        st.sidebar.info("クラウド実行モードです。ボットは自動で動作します。")
-
     # サイドバー：管理者認証
-    st.sidebar.divider()
-    admin_password = st.sidebar.text_input("管理者パスワード", type="password")
-    is_admin = admin_password == os.environ.get("ADMIN_PASSWORD", "admin123") # デフォルトはadmin123
+    st.sidebar.header("🔑 認証")
+    admin_password = st.sidebar.text_input("パスワードを入力して操作解除", type="password")
+    is_admin = admin_password == os.environ.get("ADMIN_PASSWORD", "admin123")
     
+    # 管理者のみに表示されるサイドバー項目
     if is_admin:
         st.sidebar.success("管理者モード：有効")
+        st.sidebar.divider()
+        st.sidebar.header("🤖 システム制御")
+        
+        if not os.environ.get("IS_CLOUD"):
+            running = is_bot_running()
+            if running:
+                st.sidebar.success("状態: 実行中 🟢")
+                if st.sidebar.button("監視を停止"):
+                    stop_bot()
+            else:
+                st.sidebar.error("状態: 停止中 🔴")
+                if st.sidebar.button("監視を開始"):
+                    start_bot()
+            
+            with st.sidebar.expander("実行ログ"):
+                if os.path.exists("bot_log.txt"):
+                    with open("bot_log.txt", "r", encoding="utf-8") as f:
+                        st.code(f.read()[-500:], language="text")
+        else:
+            st.sidebar.info("クラウド実行モード")
     else:
-        st.sidebar.info("閲覧モード（操作制限中）")
+        st.sidebar.info("閲覧モード（制限中）")
 
-    # メインタブ
-    tab1, tab2, tab3 = st.tabs(["📊 ダッシュボード", "🔍 商品リサーチ", "⚙️ 監視設定"])
-    
-    with tab1:
-        show_dashboard()
-    with tab2:
+    # メインコンテンツ
+    if is_admin:
+        # 管理者の場合はタブを表示
+        tab1, tab2 = st.tabs(["🔍 商品リサーチ", "⚙️ 監視設定"])
+        with tab1:
+            show_product_research(is_admin)
+        with tab2:
+            show_settings(is_admin)
+    else:
+        # 一般ユーザーには商品リサーチのみ表示
         show_product_research(is_admin)
-    with tab3:
-        show_settings(is_admin)
-
-def show_dashboard():
-    # ... (既存のコード)
-    pass # プレースホルダ
 
 def show_product_research(is_admin=False):
     st.header("🔎 AIトレンド分析結果")
