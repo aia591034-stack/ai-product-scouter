@@ -35,17 +35,19 @@ def analyze_product_with_ai(product):
     現在価格: ¥{product['price']}
     
     【分析要件】
-    1. trend_reason: 価格上昇や注目の理由を推測（例：「本日発売の限定品」「YouTuber〇〇が紹介」「生産終了のニュース」など）。推測できない場合は商品特徴から分析。
-    2. heat_level: 熱狂度を "High"(争奪戦), "Medium"(人気), "Low"(通常) で判定。
-    3. future_prediction: 今後の価格推移予測（例：「再販がないためさらに高騰する」「ブームが一過性のため下落する」）。
-    4. investment_value: 投資価値があるか（S/A/B/C判定）。
+    1. trend_reason: 価格上昇や注目の理由を推測。
+    2. heat_level: 熱狂度を "High", "Medium", "Low" で判定。
+    3. future_prediction: 今後の価格推移予測。
+    4. investment_value: 投資価値判定（S/A/B/C）。
+    5. genre: この商品のジャンルを1語で特定（例：家電, ファッション, ゲーム, おもちゃ, 車, スポーツ, その他）。
     
     【出力フォーマット(JSONのみ)】
     {{
-      "trend_reason": "本日公開の映画『〇〇』の入場者特典であり、非売品のため需要が急増している。",
-      "heat_level": "High",
-      "future_prediction": "配布終了後さらに高騰する可能性があるが、フリマ出品数も多いため一瞬の下落に注意。",
-      "investment_value": "A"
+      "trend_reason": "...",
+      "heat_level": "...",
+      "future_prediction": "...",
+      "investment_value": "...",
+      "genre": "車"
     }}
     """
     

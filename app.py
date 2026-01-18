@@ -63,23 +63,55 @@ def stop_bot():
     except Exception as e:
         st.error(f"停止エラー: {e}")
 
-def load_data(search_query=None):
+def load_data(search_query=None, selected_genres=None):
     db = DatabaseManager()
     
     query = db.supabase.table("products").select("*").gt("price", 0)
     
     if search_query:
+        # タイトル検索
         response = query.ilike("title", f"%{search_query}%")\
             .neq("status", "new")\
             .order("scraped_at", desc=True)\
-            .limit(100)\
+            .limit(200)\
             .execute()
+        products = response.data
+        
+        # タイトルにヒットしなかった場合、またはジャンルでも検索したい場合
+        # ジャンル（ai_analysis->>genre）での検索を追加
+        genre_res = db.supabase.table("products").select("*")\
+            .neq("status", "new")\
+            .filter("ai_analysis->>genre", "ilike", f"%{search_query}%")\
+            .limit(100).execute()
+            
+        # 統合（重複排除）
+        existing_ids = {p['id'] for p in products}
+        for p in genre_res.data:
+            if p['id'] not in existing_ids:
+                products.append(p)
     else:
+        # 通常時は 'profitable' のみ表示
         response = query.eq("status", "profitable")\
             .order("scraped_at", desc=True)\
             .execute()
+        products = response.data
     
-    return response.data
+    # ジャンルフィルターの適用（Python側）
+    if selected_genres:
+        products = [p for p in products if p.get('ai_analysis', {}).get('genre') in selected_genres]
+        
+    return products
+
+def get_all_genres():
+    """DB内の全ジャンルを取得"""
+    db = DatabaseManager()
+    res = db.supabase.table("products").select("ai_analysis").neq("status", "new").execute()
+    genres = set()
+    for item in res.data:
+        g = item.get('ai_analysis', {}).get('genre')
+        if g:
+            genres.add(g)
+    return sorted(list(genres))
 
 def main():
     st.title("🤖 AI Product Scouter")
@@ -133,21 +165,21 @@ def main():
 def show_about():
     st.header("📖 はじめての方へ")
     
-    st.markdown(f"""
+    st.markdown("""
     ### 🤖 AI Product Scouter とは？
     このツールは、**最新のニュースやトレンドをAI（Gemini）が読み解き、将来的に価格が高騰したり、需要が急増しそうな商品を自動で見つけ出す**リサーチアシスタントです。
     """ )
     
     col1, col2 = st.columns(2)
     with col1:
-        st.info(f"""
+        st.info("""
         **🔍 リサーチの仕組み**
         1. **トレンド予測**: AIが毎日のニュースからお宝キーワードを抽出。
         2. **自動巡回**: 24時間、メルカリの新着商品を自動チェック。
         3. **AI分析**: 見つけた商品を1つずつAIが精密鑑定し、価値を判定。
         """ )
     with col2:
-        st.success(f"""
+        st.success("""
         **💎 ランクの見方**
         - **🔴 ランク S**: 極めて高い投資価値・争奪戦必至。
         - **🟠 ランク A**: 有望なトレンド商品。早めのチェックを推奨。
@@ -155,10 +187,10 @@ def show_about():
         - **⚪ ランク C**: 通常の流通品、または市場価格並み。
         """ )
 
-    st.divider()
+    st.divider() 
     
     st.header("⚖️ 免責事項")
-    st.warning(f"""
+    st.warning("""
     当サイト（AI Product Scouter）のご利用にあたっては、以下の事項を必ずご確認ください。
     
     1. **情報の正確性について**
@@ -170,9 +202,15 @@ def show_about():
 def show_product_research(is_admin=False):
     st.header("🔎 商品リサーチ")
     
-    search_query = st.text_input("🔍 キーワードで探す", placeholder="商品タイトルで検索...", key="research_search_input")
+    all_genres = get_all_genres()
     
-    products = load_data(search_query)
+    col_search, col_genre = st.columns([2, 1])
+    with col_search:
+        search_query = st.text_input("🔍 キーワード・ジャンルで探す", placeholder="例: 車, 家電, ポケモン...", key="research_search_input")
+    with col_genre:
+        selected_genres = st.multiselect("🏷️ ジャンル絞り込み", all_genres, key="genre_filter")
+    
+    products = load_data(search_query, selected_genres)
     
     if not products:
         if search_query:
@@ -203,7 +241,7 @@ def show_product_research(is_admin=False):
     st.write(f"表示件数: {len(filtered_products)}件")
 
     if filtered_products:
-        csv_data = [{"タイトル": p['title'], "価格": p['price'], "ランク": p.get('ai_analysis', {}).get('investment_value'), "URL": p['product_url']} for p in filtered_products]
+        csv_data = [{"タイトル": p['title'], "価格": p['price'], "ランク": p.get('ai_analysis', {}).get('investment_value'), "ジャンル": p.get('ai_analysis', {}).get('genre'), "URL": p['product_url']} for p in filtered_products]
         st.download_button("📥 CSVダウンロード", pd.DataFrame(csv_data).to_csv(index=False).encode('utf-8-sig'), "scout_results.csv", "text/csv", key="download_csv_btn")
 
     cols = st.columns(3)
@@ -212,9 +250,13 @@ def show_product_research(is_admin=False):
             with st.container(border=True):
                 ai_data = item.get('ai_analysis', {})
                 rank = ai_data.get('investment_value', 'C')
+                genre = ai_data.get('genre', 'その他')
                 rank_colors = {"S": "🔴", "A": "🟠", "B": "🟢", "C": "⚪"}
                 
-                st.markdown(f"### {rank_colors.get(rank, '')} ランク {rank}")
+                col_r, col_g = st.columns(2)
+                col_r.markdown(f"### {rank_colors.get(rank, '')} ランク {rank}")
+                col_g.markdown(f"**🏷️ {genre}**")
+                
                 if item.get('image_url'):
                     st.image(item['image_url'], use_container_width=True)
                 
