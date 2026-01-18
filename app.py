@@ -26,79 +26,71 @@ st.markdown("""
     /* ヘッダーのグラデーション */
     .main-header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-        border-radius: 15px;
+        padding: 2.5rem;
+        border-radius: 20px;
         color: white;
         margin-bottom: 2rem;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        box-shadow: 0 10px 30px rgba(118, 75, 162, 0.2);
     }
     
     /* カードのデザイン */
-    .product-card {
+    .product-card-container {
         background: white;
-        padding: 1.5rem;
+        padding: 0;
         border-radius: 20px;
         border: 1px solid #f0f0f0;
+        overflow: hidden;
         box-shadow: 0 10px 20px rgba(0,0,0,0.05);
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-        height: 100%;
+        transition: all 0.3s ease;
+        margin-bottom: 20px;
     }
     
-    .product-card:hover {
+    .product-card-container:hover {
         transform: translateY(-5px);
-        box-shadow: 0 15px 30px rgba(0,0,0,0.1);
+        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
     }
     
-    /* ランクバッジ */
+    /* ステータスバッジ */
+    .badge-container {
+        display: flex;
+        gap: 8px;
+        padding: 15px 15px 0 15px;
+    }
+    
     .rank-badge {
-        padding: 0.4rem 1rem;
+        padding: 4px 12px;
         border-radius: 50px;
-        font-weight: bold;
-        font-size: 0.8rem;
-        display: inline-block;
-        margin-bottom: 1rem;
+        font-weight: 700;
+        font-size: 0.75rem;
+        text-transform: uppercase;
     }
     
-    .rank-s { background-color: #ffe3e3; color: #ff4b4b; border: 1px solid #ff4b4b; }
-    .rank-a { background-color: #fff4e6; color: #fd7e14; border: 1px solid #fd7e14; }
-    .rank-b { background-color: #ebfbee; color: #40c057; border: 1px solid #40c057; }
-    .rank-c { background-color: #f8f9fa; color: #868e96; border: 1px solid #868e96; }
+    .rank-s { background-color: #ff4b4b; color: white; }
+    .rank-a { background-color: #fd7e14; color: white; }
+    .rank-b { background-color: #40c057; color: white; }
+    .rank-c { background-color: #868e96; color: white; }
     
-    /*ジャンルタグ */
-    .genre-tag {
+    .genre-badge {
         background-color: #f1f3f5;
         color: #495057;
-        padding: 0.2rem 0.6rem;
-        border-radius: 5px;
+        padding: 4px 12px;
+        border-radius: 50px;
         font-size: 0.75rem;
-        margin-left: 0.5rem;
+        font-weight: 600;
     }
 
-    /*サイドバーの調整 */
+    /* フォームと入力エリア */
+    .stTextInput>div>div>input {
+        border-radius: 10px;
+        border: 1px solid #e9ecef;
+    }
+
     section[data-testid="stSidebar"] {
         background-color: #f8f9fa;
         border-right: 1px solid #e9ecef;
     }
-    
-    /*タブのスタイル */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
-        background-color: transparent;
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        font-weight: 600;
-        font-size: 1rem;
-        color: #495057;
-    }
-
-    .stTabs [aria-selected="true"] {
-        color: #764ba2 !important;
-        border-bottom-color: #764ba2 !important;
-    }
     </style>
-    """, unsafe_allow_html=True)
+", unsafe_allow_html=True)
 
 # --- ロジック部分 ---
 
@@ -129,180 +121,216 @@ def stop_bot():
 
 def load_data(search_query=None, selected_genres=None):
     db = DatabaseManager()
-    query = db.supabase.table("products").select("*").gt("price", 0)
     
-    if search_query:
-        # キーワード検索: タイトルまたはジャンル(ai_analysis->>genre)
-        res = query.or_(f"title.ilike.%{search_query}%",f"ai_analysis->>genre.ilike.%{search_query}%")\
-            .neq("status", "new")\
-            .order("scraped_at", desc=True)\
-            .limit(200).execute()
-        products = res.data
-    else:
-        # 通常時はお宝のみ
-        res = query.eq("status", "profitable").order("scraped_at", desc=True).execute()
-        products = res.data
-    
-    # ジャンル絞り込みの適用
-    if selected_genres:
-        products = [p for p in products if p.get('ai_analysis', {}).get('genre') in selected_genres]
+    try:
+        if search_query:
+            # PostgRESTの記法に修正: * をワイルドカードに使用
+            # JSONパスも正確に指定
+            filter_str = f"title.ilike.*{search_query}*,ai_analysis->>genre.ilike.*{search_query}*"
+            res = db.supabase.table("products").select("*")\
+                .or_(filter_str)
+                .neq("status", "new")\
+                .gt("price", 0)
+                .order("scraped_at", desc=True)
+                .limit(200).execute()
+        else:
+            res = db.supabase.table("products").select("*")\
+                .eq("status", "profitable")\
+                .gt("price", 0)
+                .order("scraped_at", desc=True)
+                .execute()
         
-    return products
+        products = res.data
+        
+        # ジャンル絞り込み (Python側で確実に行う)
+        if selected_genres:
+            filtered_products = []
+            for p in products:
+                ai = p.get('ai_analysis')
+                if isinstance(ai, str): ai = json.loads(ai)
+                if ai and ai.get('genre') in selected_genres:
+                    filtered_products.append(p)
+            return filtered_products
+            
+        return products
+    except Exception as e:
+        st.error(f"データ読み込みエラー: {e}")
+        return []
 
 def get_all_genres():
-    db = DatabaseManager()
-    res = db.supabase.table("products").select("ai_analysis").neq("status", "new").execute()
-    genres = set()
-    for item in res.data:
-        if isinstance(item.get('ai_analysis'), dict):
-            g = item['ai_analysis'].get('genre')
-            if g: genres.add(g)
-    return sorted(list(genres))
+    try:
+        db = DatabaseManager()
+        res = db.supabase.table("products").select("ai_analysis").neq("status", "new").execute()
+        genres = set()
+        for item in res.data:
+            ai = item.get('ai_analysis')
+            if isinstance(ai, str): ai = json.loads(ai)
+            if isinstance(ai, dict):
+                g = ai.get('genre')
+                if g: genres.add(g)
+        return sorted(list(genres))
+    except:
+        return []
 
 # --- UI コンポーネント ---
 
 def show_about():
-    st.markdown('<div class="main-header"><h1>🚀 AI Product Scouter</h1><p>AIが24時間、世界中のトレンドからお宝商品を発見し続けます。</p></div>', unsafe_allow_html=True)
+    st.markdown("<div class=\"main-header\"><h1>🤖 AI Product Scouter</h1><p>AIトレンド分析官が、あなたに代わってお宝商品を見つけ出します。</p></div>", unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("### 🔍 探す")
-        st.write("AIが最新ニュースから「次に流行るキーワード」を自動で特定し、監視リストに追加します。")
-    with col2:
-        st.markdown("### 🤖 分析する")
-        st.write("Gemini 2.0 が商品を1つずつ鑑定し、背景・将来性・投資価値をランク付けします。")
-    with col3:
-        st.markdown("### 💰 稼ぐ")
-        st.write("お宝（S/Aランク）が見つかったら、即座にDiscordへ通知。チャンスを逃しません。")
-
-    st.divider()
-    with st.expander("⚖️ 免責事項を確認する"):
-        st.warning("本ツールはAIの予測に基づく情報提供のみを目的としています。最終的な判断は自己責任で行ってください。")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        with st.container(border=True):
+            st.markdown("### 🛰️ トレンド追跡")
+            st.write("最新ニュースやGoogleトレンドをAIが24時間解析。次に価格が上がるキーワードを自動で抽出します。")
+    with c2:
+        with st.container(border=True):
+            st.markdown("### 🧠 精密AI鑑定")
+            st.write("Gemini 2.0 が商品の希少性、需要、将来の相場を予測し、S〜Cランクで格付け。お宝を逃しません。")
+    with c3:
+        with st.container(border=True):
+            st.markdown("### 🔔 即時通知")
+            st.write("お宝（S/Aランク）を検知すると、Discordに画像を添えて即通知。スマホ1つで仕入れ判断が可能です。")
 
 def show_product_research(is_admin):
     st.subheader("🔎 トレンドリサーチ")
     
     all_genres = get_all_genres()
     
-    # 検索エリアをカード風に
+    # 検索・フィルターエリア
     with st.container(border=True):
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            search_query = st.text_input("キーワード検索", placeholder="商品名やジャンルを入力...", key="search_bar")
-        with c2:
-            selected_genres = st.multiselect("ジャンルで絞り込む", all_genres, key="genre_sel")
+        col_s, col_g = st.columns([2, 1])
+        with col_s:
+            search_query = st.text_input("キーワード検索（商品名・ジャンル・車など）", placeholder="何を探しますか？", key="main_search")
+        with col_g:
+            selected_genres = st.multiselect("ジャンル絞り込み", all_genres if all_genres else ["データなし"], key="genre_filter")
 
     products = load_data(search_query, selected_genres)
 
-    # フィルター設定
-    with st.expander("🕵️ 詳細フィルター"):
+    # 詳細フィルター
+    with st.expander("🕵️ 詳細設定（ランク・価格・ソート）"):
         f1, f2, f3 = st.columns(3)
-        available_ranks = ["S", "A", "B", "C"]
-        rank_filter = f1.multiselect("ランク", available_ranks, default=["S", "A", "B"], key="rank_f")
-        min_price = f2.number_input("最低価格 (¥)", value=0, key="price_f")
-        sort_order = f3.selectbox("並び替え", ["新着順", "価格が高い順", "投資価値順"], key="sort_f")
+        rank_filter = f1.multiselect("ランク", ["S", "A", "B", "C"], default=["S", "A", "B"], key="rank_f")
+        min_price = f2.number_input("最低価格", value=0, step=1000)
+        sort_order = f3.selectbox("並び替え", ["新着順", "価格が高い順", "投資価値順"])
 
-    # フィルタリング適用
-    filtered = [p for p in products if p.get('ai_analysis', {}).get('investment_value') in rank_filter and p['price'] >= min_price]
+    # Python側フィルタリング
+    filtered = []
+    for p in products:
+        ai = p.get('ai_analysis')
+        if isinstance(ai, str): ai = json.loads(ai)
+        rank = ai.get('investment_value', 'C') if ai else 'C'
+        if rank in rank_filter and p['price'] >= min_price:
+            filtered.append(p)
     
     # ソート
     if sort_order == "投資価値順":
         rm = {'S':3, 'A':2, 'B':1, 'C':0}
-        filtered.sort(key=lambda x: rm.get(x.get('ai_analysis', {}).get('investment_value', 'C'), 0), reverse=True)
+        filtered.sort(key=lambda x: rm.get((x.get('ai_analysis') if isinstance(x.get('ai_analysis'), dict) else json.loads(x.get('ai_analysis', '{}'))).get('investment_value', 'C'), 0), reverse=True)
     elif sort_order == "価格が高い順":
         filtered.sort(key=lambda x: x['price'], reverse=True)
 
-    st.caption(f"該当商品: {len(filtered)} 件")
+    st.markdown(f"**表示件数:** `{len(filtered)}` 件")
 
-    # グリッド表示
-    grid_cols = st.columns(3)
+    # カードグリッド
+    if not filtered:
+        st.info("条件に一致する商品が見つかりませんでした。別のキーワードをお試しください。")
+        return
+
+    grid = st.columns(3)
     for i, item in enumerate(filtered):
-        with grid_cols[i % 3]:
-            ai = item.get('ai_analysis', {})
+        with grid[i % 3]:
+            ai = item.get('ai_analysis')
+            if isinstance(ai, str): ai = json.loads(ai)
             rank = ai.get('investment_value', 'C')
             genre = ai.get('genre', 'その他')
             
-            # カード型HTML
-            st.markdown(f"""
-                <div class="product-card">
-                    <span class="rank-badge rank-{rank.lower()}">RANK {rank}</span>
-                    <span class="genre-tag">{genre}</span>
-                    <h4 style="margin-top: 0.5rem; height: 3em; overflow: hidden;">{item['title']}</h4>
-                    <p style="font-size: 1.2rem; font-weight: bold; color: #764ba2;">¥{item['price']:,}</p>
-                </div>
-            """, unsafe_allow_html=True)
-            
-            # 画像と詳細
-            if item['image_url']: st.image(item['image_url'], use_container_width=True)
-            
-            with st.expander("📊 AI鑑定レポート"):
-                st.write(f"**📈 理由:** {ai.get('trend_reason')}")
-                st.info(f"🔮 **予測:** {ai.get('future_prediction')}")
-            
-            st.link_button("メルカリで見る", item['product_url'], use_container_width=True)
-            
-            if is_admin:
-                a1, a2 = st.columns(2)
-                if a1.button("🔄 再分析", key=f"re_{item['id']}"):
-                    DatabaseManager().supabase.table("products").update({"status": "new", "ai_analysis": None}).eq("id", item['id']).execute()
-                    st.rerun()
-                if a2.button("🗑️ 除外", key=f"del_{item['id']}"):
-                    DatabaseManager().supabase.table("products").update({"status": "discarded"}).eq("id", item['id']).execute()
-                    st.rerun()
-            st.write("---")
+            # カード全体を囲うコンテナ
+            with st.container(border=True):
+                # カスタムバッジ
+                st.markdown(f"""
+                    <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+                        <span class="rank-badge rank-{rank.lower()}">RANK {rank}</span>
+                        <span class="genre-badge">{genre}</span>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                if item['image_url']:
+                    st.image(item['image_url'], use_container_width=True)
+                
+                st.markdown(f"#### {item['title']}")
+                st.markdown(f"### <span style='color: #764ba2;'>¥{item['price']:,}</span>", unsafe_allow_html=True)
+                
+                with st.expander("📋 AI分析レポート"):
+                    st.write(f"**📈 理由:** {ai.get('trend_reason', '分析中')}")
+                    st.info(f"🔮 **将来予測:** {ai.get('future_prediction', '')}")
+                
+                st.link_button("商品ページを開く", item['product_url'], use_container_width=True)
+                
+                if is_admin:
+                    a1, a2 = st.columns(2)
+                    if a1.button("🔄 再分析", key=f"re_{item['id']}"):
+                        DatabaseManager().supabase.table("products").update({"status": "new", "ai_analysis": None}).eq("id", item['id']).execute()
+                        st.rerun()
+                    if a2.button("🗑️ 除外", key=f"del_{item['id']}"):
+                        DatabaseManager().supabase.table("products").update({"status": "discarded"}).eq("id", item['id']).execute()
+                        st.rerun()
 
 def show_settings(is_admin):
     if not is_admin: return
-    st.subheader("⚙️ 管理設定")
+    st.header("⚙️ 監視設定")
     db = DatabaseManager()
     
-    col1, col2 = st.columns(2)
-    with col1:
-        with st.form("add"):
-            k = st.text_input("新しい監視キーワード")
+    c1, c2 = st.columns(2)
+    with c1:
+        with st.form("new_k"):
+            st.subheader("キーワード追加")
+            k = st.text_input("キーワード")
             p = st.number_input("目標利益", value=3000)
-            if st.form_submit_button("追加") and k:
+            if st.form_submit_button("保存") and k:
                 db.supabase.table("search_configs").insert({"keyword": k, "target_profit": p}).execute()
+                st.success(f"「{k}」を追加しました")
                 st.rerun()
-    with col2:
-        st.write("おすすめ機能")
-        if st.button("🔥 トレンドから自動追加"):
+    with c2:
+        st.subheader("一括操作")
+        if st.button("🔥 Googleトレンドから自動取得"):
             subprocess.run([sys.executable, "trend_watcher.py"])
             st.rerun()
 
-    st.write("現在の監視リスト")
+    st.divider()
+    st.subheader("現在の監視リスト")
     configs = db.get_active_search_configs()
-    if configs: st.dataframe(pd.DataFrame(configs)[['keyword', 'target_profit', 'created_at']], use_container_width=True)
-
-# --- メイン実行 ---
+    if configs:
+        st.dataframe(pd.DataFrame(configs)[['keyword', 'target_profit', 'created_at']], use_container_width=True)
 
 def main():
     # サイドバー
-    st.sidebar.title("🔐 Admin Area")
-    pw = st.sidebar.text_input("Passphrase", type="password")
+    st.sidebar.title("🛠️ 管理設定")
+    pw = st.sidebar.text_input("Admin Passphrase", type="password")
     is_admin = pw == os.environ.get("ADMIN_PASSWORD", "admin123")
     
     if is_admin:
-        st.sidebar.success("Welcome, Admin")
+        st.sidebar.success("管理者としてログイン中")
         if not os.environ.get("IS_CLOUD"):
             st.sidebar.divider()
             if is_bot_running():
-                st.sidebar.success("Bot: Running")
-                if st.sidebar.button("Stop Bot"): stop_bot()
+                st.sidebar.success("ボット稼働中")
+                if st.sidebar.button("ボットを停止"):
+                    stop_bot()
             else:
-                st.sidebar.error("Bot: Offline")
-                if st.sidebar.button("Start Bot"): start_bot()
+                st.sidebar.error("ボット停止中")
+                if st.sidebar.button("ボットを起動"):
+                    start_bot()
     
     # メインタブ
     if is_admin:
-        t1, t2, t3 = st.tabs(["🏠 Home", "🔎 Research", "⚙️ Settings"])
-        with t1: show_about()
-        with t2: show_product_research(is_admin)
-        with t3: show_settings(is_admin)
+        t_h, t_r, t_s = st.tabs(["🏠 ホーム", "🔎 リサーチ", "⚙️ 設定"])
+        with t_h: show_about()
+        with t_r: show_product_research(is_admin)
+        with t_s: show_settings(is_admin)
     else:
-        t1, t2 = st.tabs(["🏠 Home", "🔎 Research"])
-        with t1: show_about()
-        with t2: show_product_research(is_admin)
+        t_h, t_r = st.tabs(["🏠 ホーム", "🔎 リサーチ"])
+        with t_h: show_about()
+        with t_r: show_product_research(is_admin)
 
 if __name__ == "__main__":
     main()
