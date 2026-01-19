@@ -54,6 +54,14 @@ def analyze_product_with_ai(product):
     try:
         response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
         result_json = json.loads(response.text)
+        
+        # 配列で返ってきた場合の対策
+        if isinstance(result_json, list):
+            if len(result_json) > 0:
+                result_json = result_json[0]
+            else:
+                return None
+                
         return result_json
     except Exception as e:
         print(f"AI Analysis Error for {product['title']}: {e}")
