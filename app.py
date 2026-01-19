@@ -218,7 +218,7 @@ def show_settings(is_admin):
             if st.form_submit_button("保存") and k:
                 db.supabase.table("search_configs").insert({"keyword": k, "target_profit": p}).execute()
                 st.rerun()
-    with col2 := c2:
+    with c2 as col2:
         if st.button("🔥 トレンド自動取得"):
             subprocess.run([sys.executable, "trend_watcher.py"])
             st.rerun()
